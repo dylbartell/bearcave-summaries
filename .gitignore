@@ -1,1 +1,7 @@
-_site/
+# Source data lives in sibling dirs and is NOT committed.
+# Only build infrastructure and the built _site/ output are tracked.
+*.md
+*.json
+*.xlsx
+*.docx
+.claude/
