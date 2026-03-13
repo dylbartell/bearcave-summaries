@@ -46,7 +46,7 @@ SOURCES = [
     {
         "id": "doc-digest",
         "label": "DoC Digest",
-        "type": "summaries",
+        "type": "doc_digest",
         "path": "doctorofcredit",
         "pattern": "*.md",
         "exclude": [],
@@ -142,7 +142,7 @@ def build():
     tab_data = []
     claims_json = "[]"
     for src in SOURCES:
-        if src["type"] == "summaries":
+        if src["type"] in ("summaries", "doc_digest"):
             entries = load_summaries(src)
             tab_data.append({**src, "entries": entries})
         elif src["type"] == "single":
@@ -175,7 +175,108 @@ def build():
     for tab in tab_data:
         var = f'data_{tab["id"].replace("-", "_")}'
         el_id = tab["id"]
-        if tab["type"] == "summaries":
+        if tab["type"] == "doc_digest":
+            js_data += f'const {var} = {json.dumps(tab.get("entries", []))};\n'
+            js_render += f"""
+(function() {{
+  const el = document.getElementById("{el_id}");
+  const entries = {var};
+  if (entries.length === 0) {{
+    el.innerHTML = '<div class="empty">No entries yet.</div>';
+  }} else {{
+    entries.forEach(e => {{
+      const div = document.createElement("div");
+      div.className = "doc-digest";
+      div.innerHTML = marked.parse(e.content);
+
+      // Transform the h1 into a styled digest header
+      const h1 = div.querySelector('h1');
+      if (h1) {{
+        const text = h1.textContent.trim();
+        // Extract date from "DoC Daily Digest — March 13, 2026"
+        const m = text.match(/digest\\s*[—–-]\\s*(.+)$/i);
+        const hdr = document.createElement('div');
+        hdr.className = 'doc-header';
+        hdr.innerHTML = '<div class="doc-channel">DOCTOR OF CREDIT</div>'
+          + '<div class="doc-date">' + (m ? m[1].trim() : text) + '</div>';
+        // Pull out the subtitle line (posts scanned / offers found)
+        const nextEl = h1.nextElementSibling;
+        if (nextEl && nextEl.tagName === 'P' && /posts scanned/i.test(nextEl.textContent)) {{
+          hdr.innerHTML += '<div class="doc-meta">' + nextEl.innerHTML + '</div>';
+          nextEl.remove();
+        }}
+        h1.replaceWith(hdr);
+      }}
+
+      // Remove leading <hr> right after header
+      const firstHr = div.querySelector('.doc-header + hr');
+      if (firstHr) firstHr.remove();
+
+      // Style each deal section (## #N — Title [Score: N])
+      div.querySelectorAll('h2').forEach(h2 => {{
+        const t = h2.textContent.trim();
+        const dealMatch = t.match(/^#(\\d+)\\s*[—–-]\\s*(.+?)\\s*\\[Score:\\s*(\\d+)\\]/i);
+        if (dealMatch) {{
+          const num = dealMatch[1];
+          const title = dealMatch[2].trim();
+          const score = dealMatch[3];
+          const badge = document.createElement('div');
+          badge.className = 'doc-deal-header';
+          let scoreClass = 'score-low';
+          if (parseInt(score) >= 60) scoreClass = 'score-high';
+          else if (parseInt(score) >= 35) scoreClass = 'score-mid';
+          badge.innerHTML = '<span class="doc-deal-num">#' + num + '</span>'
+            + '<span class="doc-deal-title">' + title + '</span>'
+            + '<span class="doc-deal-score ' + scoreClass + '">' + score + '</span>';
+          h2.replaceWith(badge);
+        }}
+        // "Also Posted" section header
+        const alsoMatch = t.match(/also posted/i);
+        if (alsoMatch) {{
+          h2.className = 'doc-section-divider';
+        }}
+        // "Notes" section
+        if (/^notes$/i.test(t)) {{
+          h2.className = 'doc-section-divider doc-notes-header';
+        }}
+      }});
+
+      // Style metadata tables (the 2-col key/value tables)
+      div.querySelectorAll('table').forEach(table => {{
+        const rows = table.querySelectorAll('tr');
+        const cols = rows.length > 0 ? rows[0].querySelectorAll('td, th') : [];
+        if (cols.length === 2) {{
+          table.className = 'doc-meta-table';
+        }}
+      }});
+
+      // Style blockquotes as warning callouts
+      div.querySelectorAll('blockquote').forEach(bq => {{
+        bq.className = 'doc-warning';
+      }});
+
+      // Style "View on Doctor of Credit" links
+      div.querySelectorAll('a').forEach(a => {{
+        if (/view on doctor of credit/i.test(a.textContent) || /full details/i.test(a.textContent)) {{
+          const wrapper = document.createElement('div');
+          wrapper.className = 'doc-cta';
+          const btn = a.cloneNode(true);
+          btn.className = 'doc-cta-link';
+          wrapper.appendChild(btn);
+          if (a.parentElement && a.parentElement.tagName === 'P') {{
+            a.parentElement.replaceWith(wrapper);
+          }} else {{
+            a.replaceWith(wrapper);
+          }}
+        }}
+      }});
+
+      el.appendChild(div);
+    }});
+  }}
+}})();
+"""
+        elif tab["type"] == "summaries":
             js_data += f'const {var} = {json.dumps(tab.get("entries", []))};\n'
             js_render += f"""
 (function() {{
@@ -349,6 +450,49 @@ def build():
                              border-top: 1px solid #eee; color: #1a1a1a; }}
   .empty {{ text-align: center; padding: 3rem; color: #888; }}
 
+  /* ── DoC Digest styles ── */
+  .doc-digest {{ background: #fff; border-radius: 10px; padding: 1.5rem 1.75rem 1.25rem;
+                 margin-bottom: 1.25rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }}
+  .doc-header {{ text-align: center; margin-bottom: 1.25rem; padding-bottom: 1rem;
+                 border-bottom: 1px solid #eee; }}
+  .doc-header .doc-channel {{ font-size: .7rem; font-weight: 700; text-transform: uppercase;
+                              letter-spacing: .08em; color: #16a34a; margin-bottom: .25rem; }}
+  .doc-header .doc-date {{ font-size: 1.15rem; font-weight: 600; color: #1a1a1a; }}
+  .doc-header .doc-meta {{ font-size: .8rem; color: #6b7280; margin-top: .35rem; }}
+  .doc-deal-header {{ display: flex; align-items: center; gap: .6rem; margin: 1.5rem 0 .75rem;
+                      padding: .6rem .8rem; background: #f0fdf4; border-radius: 8px;
+                      border-left: 3px solid #16a34a; }}
+  .doc-deal-num {{ font-size: .75rem; font-weight: 700; color: #16a34a; min-width: 1.5rem; }}
+  .doc-deal-title {{ font-size: 1rem; font-weight: 600; color: #1a1a1a; flex: 1; }}
+  .doc-deal-score {{ font-size: .75rem; font-weight: 700; padding: .2rem .5rem;
+                     border-radius: 12px; white-space: nowrap; }}
+  .score-high {{ background: #dcfce7; color: #15803d; }}
+  .score-mid {{ background: #fef9c3; color: #a16207; }}
+  .score-low {{ background: #fee2e2; color: #dc2626; }}
+  .doc-meta-table {{ width: 100%; border-collapse: collapse; margin: .5rem 0; font-size: .85rem; }}
+  .doc-meta-table td {{ padding: .3rem .5rem; border: none; vertical-align: top; }}
+  .doc-meta-table td:first-child {{ width: 110px; color: #6b7280; font-weight: 500; white-space: nowrap; }}
+  .doc-meta-table td:last-child {{ color: #1a1a1a; }}
+  .doc-meta-table tr:nth-child(even) {{ background: #fafafa; }}
+  .doc-warning {{ margin: .75rem 0; padding: .6rem .8rem; background: #fffbeb; border-left: 3px solid #f59e0b;
+                  border-radius: 0 6px 6px 0; font-size: .85rem; color: #92400e; }}
+  .doc-warning p {{ margin: 0; }}
+  .doc-section-divider {{ font-size: .85rem; font-weight: 700; text-transform: uppercase;
+                          letter-spacing: .04em; color: #6b7280; margin: 1.5rem 0 .5rem;
+                          padding-top: .75rem; border-top: 1px solid #eee; }}
+  .doc-notes-header {{ color: #9ca3af; }}
+  .doc-cta {{ margin: .75rem 0; }}
+  .doc-cta-link {{ display: inline-block; padding: .4rem .8rem; background: #16a34a; color: #fff !important;
+                   border-radius: 6px; font-size: .82rem; font-weight: 600; text-decoration: none !important;
+                   transition: background .15s; }}
+  .doc-cta-link:hover {{ background: #15803d; }}
+  .doc-digest p {{ margin: .5rem 0; line-height: 1.6; font-size: .9rem; }}
+  .doc-digest ul {{ margin: .4rem 0 .4rem 1.25rem; }}
+  .doc-digest li {{ margin: .3rem 0; line-height: 1.55; font-size: .88rem; }}
+  .doc-digest hr {{ border: none; border-top: 1px solid #eee; margin: 1.25rem 0; }}
+  .doc-digest a {{ color: #16a34a; text-decoration: none; }}
+  .doc-digest a:hover {{ text-decoration: underline; }}
+
   .single-content {{ background: #fff; border-radius: 8px; padding: 1.25rem 1.5rem;
              box-shadow: 0 1px 3px rgba(0,0,0,.1); }}
   .single-content h1 {{ font-size: 1.3rem; margin-bottom: .5rem; }}
@@ -428,6 +572,26 @@ def build():
     .claims-table a {{ color: #60a5fa; }}
     .claim-action {{ color: #aaa; }}
     .claim-notes {{ color: #f59e0b; }}
+    .doc-digest {{ background: #252525; box-shadow: 0 1px 3px rgba(0,0,0,.4); }}
+    .doc-header {{ border-bottom-color: #333; }}
+    .doc-header .doc-channel {{ color: #4ade80; }}
+    .doc-header .doc-date {{ color: #eee; }}
+    .doc-header .doc-meta {{ color: #9ca3af; }}
+    .doc-deal-header {{ background: #1a2e1a; border-left-color: #4ade80; }}
+    .doc-deal-num {{ color: #4ade80; }}
+    .doc-deal-title {{ color: #eee; }}
+    .score-high {{ background: #14532d; color: #86efac; }}
+    .score-mid {{ background: #422006; color: #fde047; }}
+    .score-low {{ background: #450a0a; color: #fca5a5; }}
+    .doc-meta-table td:first-child {{ color: #9ca3af; }}
+    .doc-meta-table td:last-child {{ color: #ddd; }}
+    .doc-meta-table tr:nth-child(even) {{ background: #2a2a2a; }}
+    .doc-warning {{ background: #422006; border-left-color: #f59e0b; color: #fde68a; }}
+    .doc-section-divider {{ color: #9ca3af; border-top-color: #333; }}
+    .doc-cta-link {{ background: #16a34a; }}
+    .doc-cta-link:hover {{ background: #22c55e; }}
+    .doc-digest hr {{ border-top-color: #333; }}
+    .doc-digest a {{ color: #4ade80; }}
   }}
 
   @media (max-width: 600px) {{
