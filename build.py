@@ -318,9 +318,9 @@ def build():
   .tabs {{ display: flex; gap: 0; border-bottom: 2px solid #ddd; margin-bottom: 1rem;
            position: sticky; top: 0; background: #f5f5f5; padding-top: 1rem; z-index: 10;
            flex-wrap: wrap; align-items: center; }}
-  .jackpot {{ margin-left: auto; font-size: .75rem; color: #888; padding: 0 .5rem; white-space: nowrap;
-              text-decoration: none; }}
-  .jackpot:hover {{ color: #666; }}
+  .jackpot {{ margin-left: auto; font-size: .75rem; color: #dc2626; font-weight: 600; padding: 0 .5rem;
+              white-space: nowrap; text-decoration: none; }}
+  .jackpot:hover {{ color: #ef4444; }}
   .tab {{ padding: .6rem 1.25rem; cursor: pointer; border: none; background: none;
           font-size: .95rem; font-weight: 500; color: #666; border-bottom: 2px solid transparent;
           margin-bottom: -2px; transition: color .15s, border-color .15s; }}
@@ -403,8 +403,8 @@ def build():
     .tab {{ color: #888; }}
     .tab:hover {{ color: #ccc; }}
     .tab.active {{ color: #60a5fa; border-bottom-color: #60a5fa; }}
-    .jackpot {{ color: #666; }}
-    .jackpot:hover {{ color: #888; }}
+    .jackpot {{ color: #f87171; }}
+    .jackpot:hover {{ color: #fca5a5; }}
     .summary, .single-content {{ background: #252525; box-shadow: 0 1px 3px rgba(0,0,0,.4); }}
     .summary .header {{ border-bottom-color: #333; }}
     .summary .header .channel {{ color: #9ca3af; }}
