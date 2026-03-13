@@ -188,24 +188,62 @@ def build():
       const div = document.createElement("div");
       div.className = "summary";
       div.innerHTML = marked.parse(e.content);
-      const h1 = div.querySelector('h1');
-      if (h1) {{
-        const text = h1.textContent;
-        const m = text.match(/^#?\\s*(\\S+)\\s+Monitor\\s*[—–-]\\s*(\\d{{4}}-\\d{{2}}-\\d{{2}})\\s+(.+)$/i);
+
+      // Try to normalize any h1 or h2 into the styled header block
+      const heading = div.querySelector('h1') || div.querySelector('h2');
+      let parsed = false;
+      if (heading) {{
+        const text = heading.textContent.trim();
+
+        // Pattern 1: channel + Monitor/summary/alert + date + time
+        let m = text.match(/^#?\\s*([\\w-]+)\\s+(?:monitor|summary|alert)\\s*[—–-]\\s*(\\d{{4}}-\\d{{2}}-\\d{{2}})\\s+(.+)$/i);
         if (m) {{
-          const channel = m[1];
           const dateStr = m[2];
-          const rawTime = m[3].trim();
+          let rawTime = m[3].replace(/^~/, '').replace(/\\s+local$/i, '').split(/[—–-]/)[0].trim();
           const timeDisplay = to12h(rawTime);
           const [y, mo, d] = dateStr.split('-');
           const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
           const formatted = months[parseInt(mo)-1] + ' ' + parseInt(d) + ', ' + y + ' · ' + timeDisplay + ' EST';
           const hdr = document.createElement('div');
           hdr.className = 'header';
-          hdr.innerHTML = '<div class="channel">' + channel + '</div><div class="datetime">' + formatted + '</div>';
-          h1.replaceWith(hdr);
+          hdr.innerHTML = '<div class="channel">BEARCAVE-CHAT</div><div class="datetime">' + formatted + '</div>';
+          heading.replaceWith(hdr);
+          parsed = true;
+        }}
+
+        // Pattern 2: "BEARCAVE ALERT — H:MM AM (Month DD, YYYY)"
+        if (!parsed) {{
+          m = text.match(/alert\\s*[—–-]\\s*(\\d{{1,2}}:\\d{{2}}\\s*[APap][Mm])\\s*\\((.+)\\)/i);
+          if (m) {{
+            const timeDisplay = to12h(m[1]);
+            const hdr = document.createElement('div');
+            hdr.className = 'header';
+            hdr.innerHTML = '<div class="channel">BEARCAVE-CHAT</div><div class="datetime">' + m[2].trim() + ' · ' + timeDisplay + ' EST</div>';
+            heading.replaceWith(hdr);
+            parsed = true;
+          }}
+        }}
+
+        // Fallback: if heading looks bearcave-related but didn't parse, use filename
+        if (!parsed && /bearcave/i.test(text)) {{
+          heading.remove();
         }}
       }}
+
+      // If no heading was parsed, try to build header from filename (YYYY-MM-DD_HH-MM.md)
+      if (!parsed) {{
+        const fm = e.filename.match(/^(\\d{{4}})-(\\d{{2}})-(\\d{{2}})_(\\d{{2}})-(\\d{{2}})/);
+        if (fm) {{
+          const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const timeDisplay = to12h(fm[4] + ':' + fm[5]);
+          const formatted = months[parseInt(fm[2])-1] + ' ' + parseInt(fm[3]) + ', ' + fm[1] + ' · ' + timeDisplay + ' EST';
+          const hdr = document.createElement('div');
+          hdr.className = 'header';
+          hdr.innerHTML = '<div class="channel">BEARCAVE-CHAT</div><div class="datetime">' + formatted + '</div>';
+          div.insertBefore(hdr, div.firstChild);
+        }}
+      }}
+
       div.querySelectorAll('h3').forEach(h3 => {{
         h3.innerHTML = h3.innerHTML.replace(/\\s*\\(\\d{{1,2}}:\\d{{2}}(\\s*[APap][Mm])?\\)\\s*/g, ' ').trim();
       }});
