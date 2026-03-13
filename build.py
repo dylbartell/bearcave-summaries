@@ -13,22 +13,12 @@ automatically.
 import glob
 import json
 import os
+import re
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECTS_DIR = os.path.dirname(SCRIPT_DIR)  # ../projects/
 
 # ── Source configuration ─────────────────────────────────────────────
-# Each source defines:
-#   id       — unique key, used as HTML element id
-#   label    — tab name shown on the site
-#   type     — "summaries" (multiple .md, most-recent-first)
-#              "single"    (one specific .md file rendered as-is)
-#   path     — directory relative to PROJECTS_DIR
-#   pattern  — glob pattern for "summaries" type
-#   exclude  — filenames to skip (for "summaries" type)
-#   file     — specific filename for "single" type
-#   limit    — max entries for "summaries" type (default 8)
-
 SOURCES = [
     {
         "id": "summaries",
@@ -47,6 +37,13 @@ SOURCES = [
         "file": "casino-master-summary.md",
     },
     {
+        "id": "claims",
+        "label": "Class Actions",
+        "type": "xlsx",
+        "path": "class action tracker",
+        "file": "Class_Action_Tracker.xlsx",
+    },
+    {
         "id": "doc-digest",
         "label": "DoC Digest",
         "type": "summaries",
@@ -55,16 +52,6 @@ SOURCES = [
         "exclude": [],
         "limit": 8,
     },
-    # To add another source, copy this template:
-    # {
-    #     "id": "ruby",
-    #     "label": "Ruby",
-    #     "type": "summaries",
-    #     "path": "ruby",
-    #     "pattern": "*.md",
-    #     "exclude": [],
-    #     "limit": 8,
-    # },
 ]
 
 
@@ -97,16 +84,75 @@ def load_single(source):
         return fh.read()
 
 
+def load_xlsx(source):
+    """Load rows from an xlsx file as list of dicts."""
+    import openpyxl
+    filepath = os.path.join(PROJECTS_DIR, source["path"], source["file"])
+    if not os.path.exists(filepath):
+        return []
+    wb = openpyxl.load_workbook(filepath, read_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    wb.close()
+    if not rows:
+        return []
+    headers = [str(h) for h in rows[0]]
+    return [dict(zip(headers, row)) for row in rows[1:]]
+
+
+def load_jackpot():
+    """Load jackpot value from ruby/jackpot.txt, return just the dollar amount."""
+    filepath = os.path.join(PROJECTS_DIR, "ruby", "jackpot.txt")
+    if not os.path.exists(filepath):
+        return ""
+    with open(filepath, encoding="utf-8") as fh:
+        raw = fh.read().strip()
+    m = re.match(r"(\$[\d,]+(?:\.\d+)?)", raw)
+    return m.group(1) if m else raw
+
+
+def transform_claims(rows):
+    """Transform raw xlsx rows into the slim JSON the frontend needs."""
+    claims = []
+    for r in rows:
+        deadline = str(r.get("Claim Deadline") or "")
+        site = r.get("Official Site") or ""
+        source_url = r.get("Source URL") or ""
+        link = site if site and site != "N/A (auto-payment)" else source_url
+        claims.append({
+            "name": r.get("Case Name") or "",
+            "company": r.get("Company") or "",
+            "category": r.get("Category") or "",
+            "deadline": deadline,
+            "you": r.get("Your Status") or "",
+            "spouse": r.get("Spouse Status") or "",
+            "payout": r.get("Max Payout") or "",
+            "proof": r.get("Proof Required") or "",
+            "action": r.get("Action Required") or "",
+            "link": link,
+            "notes": r.get("Your Notes") or "",
+        })
+    return claims
+
+
 def build():
+    jackpot = load_jackpot()
+
     # Gather data for each source
     tab_data = []
+    claims_json = "[]"
     for src in SOURCES:
         if src["type"] == "summaries":
             entries = load_summaries(src)
-            tab_data.append({**src, "entries": entries, "content": ""})
+            tab_data.append({**src, "entries": entries})
         elif src["type"] == "single":
             content = load_single(src)
-            tab_data.append({**src, "entries": [], "content": content})
+            tab_data.append({**src, "content": content})
+        elif src["type"] == "xlsx":
+            rows = load_xlsx(src)
+            claims = transform_claims(rows)
+            claims_json = json.dumps(claims, ensure_ascii=False)
+            tab_data.append({**src})
 
     # Build tab buttons
     tab_buttons = ""
@@ -123,21 +169,14 @@ def build():
             tab_panels += f'    <div id="{tab["id"]}-content"></div>\n'
         tab_panels += f'  </div>\n'
 
-    # Build JS data
+    # Build JS data + render for summaries and single types
     js_data = ""
-    for tab in tab_data:
-        var = f'data_{tab["id"].replace("-", "_")}'
-        if tab["type"] == "summaries":
-            js_data += f'const {var} = {json.dumps(tab["entries"])};\n'
-        elif tab["type"] == "single":
-            js_data += f'const {var} = {json.dumps(tab["content"])};\n'
-
-    # Build JS render logic
     js_render = ""
     for tab in tab_data:
         var = f'data_{tab["id"].replace("-", "_")}'
         el_id = tab["id"]
         if tab["type"] == "summaries":
+            js_data += f'const {var} = {json.dumps(tab.get("entries", []))};\n'
             js_render += f"""
 (function() {{
   const el = document.getElementById("{el_id}");
@@ -149,33 +188,13 @@ def build():
       const div = document.createElement("div");
       div.className = "summary";
       div.innerHTML = marked.parse(e.content);
-      const h1 = div.querySelector('h1');
-      if (h1) {{
-        const text = h1.textContent;
-        const m = text.match(/^#?\\s*(\\S+)\\s+Monitor\\s*[—–-]\\s*(\\d{{4}}-\\d{{2}}-\\d{{2}})\\s+(.+)$/i);
-        if (m) {{
-          const channel = m[1];
-          const dateStr = m[2];
-          const rawTime = m[3].trim();
-          const timeDisplay = to12h(rawTime);
-          const [y, mo, d] = dateStr.split('-');
-          const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          const formatted = months[parseInt(mo)-1] + ' ' + parseInt(d) + ', ' + y + ' · ' + timeDisplay + ' EST';
-          const hdr = document.createElement('div');
-          hdr.className = 'header';
-          hdr.innerHTML = '<div class="channel">' + channel + '</div><div class="datetime">' + formatted + '</div>';
-          h1.replaceWith(hdr);
-        }}
-      }}
-      div.querySelectorAll('h3').forEach(h3 => {{
-        h3.innerHTML = h3.innerHTML.replace(/\\s*\\(\\d{{1,2}}:\\d{{2}}(\\s*[APap][Mm])?\\)\\s*/g, ' ').trim();
-      }});
       el.appendChild(div);
     }});
   }}
 }})();
 """
         elif tab["type"] == "single":
+            js_data += f'const {var} = {json.dumps(tab.get("content", ""))};\n'
             js_render += f"""
 (function() {{
   const el = document.getElementById("{el_id}-content");
@@ -212,7 +231,10 @@ def build():
 
   .tabs {{ display: flex; gap: 0; border-bottom: 2px solid #ddd; margin-bottom: 1rem;
            position: sticky; top: 0; background: #f5f5f5; padding-top: 1rem; z-index: 10;
-           flex-wrap: wrap; }}
+           flex-wrap: wrap; align-items: center; }}
+  .jackpot {{ margin-left: auto; font-size: .75rem; color: #888; padding: 0 .5rem; white-space: nowrap;
+              text-decoration: none; }}
+  .jackpot:hover {{ color: #666; }}
   .tab {{ padding: .6rem 1.25rem; cursor: pointer; border: none; background: none;
           font-size: .95rem; font-weight: 500; color: #666; border-bottom: 2px solid transparent;
           margin-bottom: -2px; transition: color .15s, border-color .15s; }}
@@ -223,20 +245,6 @@ def build():
 
   .summary {{ background: #fff; border-radius: 10px; padding: 1.5rem 1.75rem 1.25rem;
               margin-bottom: 1.25rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }}
-  .summary .header {{ text-align: center; margin-bottom: 1.25rem; padding-bottom: 1rem;
-                      border-bottom: 1px solid #eee; }}
-  .summary .header .channel {{ font-size: .75rem; font-weight: 600; text-transform: uppercase;
-                               letter-spacing: .06em; color: #6b7280; margin-bottom: .25rem; }}
-  .summary .header .datetime {{ font-size: 1.1rem; font-weight: 600; color: #1a1a1a; }}
-  .summary h2 {{ font-size: 1.05rem; margin: 1.25rem 0 .5rem; color: #1a1a1a; }}
-  .summary h3 {{ font-size: .95rem; margin: 1rem 0 .4rem; color: #374151; }}
-  .summary p {{ margin: .5rem 0; line-height: 1.6; }}
-  .summary ul {{ margin: .4rem 0 .4rem 1.25rem; }}
-  .summary li {{ margin: .3rem 0; line-height: 1.55; }}
-  .summary strong {{ color: #1a1a1a; }}
-  .summary hr {{ border: none; border-top: 1px solid #eee; margin: 1.25rem 0; }}
-  .summary a {{ color: #2563eb; text-decoration: none; }}
-  .summary a:hover {{ text-decoration: underline; }}
   .empty {{ text-align: center; padding: 3rem; color: #888; }}
 
   .single-content {{ background: #fff; border-radius: 8px; padding: 1.25rem 1.5rem;
@@ -260,38 +268,72 @@ def build():
   .rating-mid {{ color: #ca8a04; font-weight: 600; }}
   .rating-low {{ color: #dc2626; font-weight: 600; }}
 
+  /* ── Claims table ── */
+  .claims-toolbar {{ display: flex; gap: .5rem; margin-bottom: .75rem; flex-wrap: wrap; align-items: center; }}
+  .claims-toolbar input {{ flex: 1; min-width: 150px; padding: .4rem .6rem; border: 1px solid #ddd;
+                           border-radius: 6px; font-size: .85rem; }}
+  .claims-toolbar select {{ padding: .4rem .5rem; border: 1px solid #ddd; border-radius: 6px;
+                            font-size: .8rem; background: #fff; }}
+  .claims-wrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
+  .claims-table {{ width: 100%; border-collapse: collapse; font-size: .82rem; }}
+  .claims-table th {{ background: #f0f4ff; padding: .5rem .6rem; text-align: left; font-weight: 600;
+                      border-bottom: 2px solid #c7d2fe; white-space: nowrap; cursor: pointer;
+                      user-select: none; position: relative; }}
+  .claims-table th:hover {{ background: #e0eaff; }}
+  .claims-table th .sort-arrow {{ font-size: .65rem; margin-left: .25rem; color: #999; }}
+  .claims-table th .sort-arrow.active {{ color: #2563eb; }}
+  .claims-table td {{ padding: .45rem .6rem; border-bottom: 1px solid #eee; vertical-align: top;
+                      max-width: 250px; }}
+  .claims-table tr:hover td {{ background: #f8faff; }}
+  .claims-table a {{ color: #2563eb; text-decoration: none; font-weight: 500; }}
+  .claims-table a:hover {{ text-decoration: underline; }}
+  .claim-action {{ font-size: .78rem; color: #555; line-height: 1.4; }}
+  .claim-notes {{ font-size: .75rem; color: #b45309; font-weight: 500; }}
+  .status-new {{ color: #2563eb; font-weight: 600; }}
+  .status-filed {{ color: #16a34a; font-weight: 600; }}
+  .status-review {{ color: #ca8a04; font-weight: 600; }}
+  .deadline-urgent {{ color: #dc2626; font-weight: 600; }}
+  .deadline-soon {{ color: #ca8a04; font-weight: 500; }}
+
   @media (prefers-color-scheme: dark) {{
     body {{ background: #1a1a1a; color: #ddd; }}
     .tabs {{ background: #1a1a1a; border-bottom-color: #333; }}
     .tab {{ color: #888; }}
     .tab:hover {{ color: #ccc; }}
     .tab.active {{ color: #60a5fa; border-bottom-color: #60a5fa; }}
+    .jackpot {{ color: #666; }}
+    .jackpot:hover {{ color: #888; }}
     .summary, .single-content {{ background: #252525; box-shadow: 0 1px 3px rgba(0,0,0,.4); }}
-    .summary .header {{ border-bottom-color: #333; }}
-    .summary .header .channel {{ color: #9ca3af; }}
-    .summary .header .datetime {{ color: #eee; }}
-    .summary h2, .summary strong, .single-content h1, .single-content h2 {{ color: #eee; }}
-    .summary h3 {{ color: #d1d5db; }}
-    .summary hr {{ border-top-color: #333; }}
-    .summary a {{ color: #60a5fa; }}
+    .single-content h1, .single-content h2 {{ color: #eee; }}
     .single-content h3 {{ color: #60a5fa; }}
     .single-content th {{ background: #2a2a3a; border-bottom-color: #444; }}
     .single-content td {{ border-bottom-color: #333; }}
     .single-content tr:hover td {{ background: #2a2a2a; }}
     .single-content hr {{ border-top-color: #333; }}
     .single-content h2 {{ border-top-color: #333; }}
+    .claims-toolbar input, .claims-toolbar select {{ background: #2a2a2a; border-color: #444; color: #ddd; }}
+    .claims-table th {{ background: #2a2a3a; border-bottom-color: #444; }}
+    .claims-table th:hover {{ background: #333; }}
+    .claims-table td {{ border-bottom-color: #333; }}
+    .claims-table tr:hover td {{ background: #2a2a2a; }}
+    .claims-table a {{ color: #60a5fa; }}
+    .claim-action {{ color: #aaa; }}
+    .claim-notes {{ color: #f59e0b; }}
   }}
 
   @media (max-width: 600px) {{
     .single-content table {{ font-size: .75rem; }}
     .single-content th, .single-content td {{ padding: .35rem .4rem; }}
+    .claims-table {{ font-size: .75rem; }}
+    .claims-table td {{ padding: .35rem .4rem; }}
   }}
 </style>
 </head>
 <body>
 <div class="container">
   <div class="tabs">
-{tab_buttons}  </div>
+{tab_buttons}    <a class="jackpot" href="https://play.rubysweeps.com/game/sunken-treasures" target="_blank" rel="noopener">Ruby Jackpot: {jackpot}</a>
+  </div>
 {tab_panels}</div>
 <script>
 document.querySelectorAll('.tab').forEach(btn => {{
@@ -303,19 +345,6 @@ document.querySelectorAll('.tab').forEach(btn => {{
   }});
 }});
 
-function to12h(t) {{
-  if (/[ap]m/i.test(t)) return t.toUpperCase().replace(/(\\d)(AM|PM)/, '$1 $2');
-  const p = t.match(/^(\\d{{1,2}}):(\\d{{2}})$/);
-  if (p) {{
-    let h = parseInt(p[1]), mn = p[2];
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    if (h === 0) h = 12;
-    else if (h > 12) h -= 12;
-    return h + ':' + mn + ' ' + ampm;
-  }}
-  return t;
-}}
-
 {js_data}
 document.querySelectorAll('.tab-panel').forEach(panel => {{
   const contentDiv = panel.querySelector('[id$="-content"]');
@@ -323,6 +352,155 @@ document.querySelectorAll('.tab-panel').forEach(panel => {{
 }});
 
 {js_render}
+
+/* ── Claims tab ── */
+(function() {{
+  const el = document.getElementById('claims');
+  if (!el) return;
+  const claims = {claims_json};
+  if (claims.length === 0) {{ el.innerHTML = '<div class="empty">No claims found.</div>'; return; }}
+
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  function daysUntil(d) {{
+    if (!d) return 9999;
+    const dt = new Date(d + 'T00:00:00');
+    return Math.ceil((dt - today) / 86400000);
+  }}
+
+  function deadlineClass(d) {{
+    const days = daysUntil(d);
+    if (days <= 14) return 'deadline-urgent';
+    if (days <= 30) return 'deadline-soon';
+    return '';
+  }}
+
+  function statusClass(s) {{
+    if (!s) return '';
+    const low = s.toLowerCase();
+    if (low === 'new') return 'status-new';
+    if (low === 'filed' || low === 'completed') return 'status-filed';
+    if (low.includes('review')) return 'status-review';
+    return '';
+  }}
+
+  function fmtDeadline(d) {{
+    if (!d) return '—';
+    const dt = new Date(d + 'T00:00:00');
+    const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const days = daysUntil(d);
+    let label = mo[dt.getMonth()] + ' ' + dt.getDate();
+    if (days <= 30 && days >= 0) label += ' (' + days + 'd)';
+    return label;
+  }}
+
+  // State
+  let sortCol = 'deadline';
+  let sortAsc = true;
+  let filterText = '';
+  let filterStatus = '';
+  let filterCategory = '';
+
+  // Get unique categories and statuses
+  const categories = [...new Set(claims.map(c => c.category).filter(Boolean))].sort();
+  const statuses = [...new Set(claims.flatMap(c => [c.you, c.spouse]).filter(Boolean))].sort();
+
+  function render() {{
+    let filtered = claims.filter(c => {{
+      if (filterText) {{
+        const q = filterText.toLowerCase();
+        const searchable = (c.name + ' ' + c.company + ' ' + c.action + ' ' + c.category).toLowerCase();
+        if (!searchable.includes(q)) return false;
+      }}
+      if (filterStatus && c.you !== filterStatus && c.spouse !== filterStatus) return false;
+      if (filterCategory && c.category !== filterCategory) return false;
+      return true;
+    }});
+
+    filtered.sort((a, b) => {{
+      let va = a[sortCol] || '', vb = b[sortCol] || '';
+      if (sortCol === 'deadline') {{
+        va = va || '9999'; vb = vb || '9999';
+      }}
+      const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+      return sortAsc ? cmp : -cmp;
+    }});
+
+    const cols = [
+      {{ key: 'name', label: 'Claim' }},
+      {{ key: 'deadline', label: 'Deadline' }},
+      {{ key: 'you', label: 'You' }},
+      {{ key: 'spouse', label: 'Spouse' }},
+      {{ key: 'payout', label: 'Payout' }},
+      {{ key: 'proof', label: 'Proof' }},
+      {{ key: 'action', label: 'Action' }},
+    ];
+
+    let html = '<div class="claims-toolbar">';
+    html += '<input type="text" id="claims-search" placeholder="Search claims..." value="' + filterText.replace(/"/g,'&quot;') + '">';
+    html += '<select id="claims-status"><option value="">All statuses</option>';
+    statuses.forEach(s => html += '<option value="' + s + '"' + (filterStatus===s?' selected':'') + '>' + s + '</option>');
+    html += '</select>';
+    html += '<select id="claims-cat"><option value="">All categories</option>';
+    categories.forEach(c => html += '<option value="' + c + '"' + (filterCategory===c?' selected':'') + '>' + c + '</option>');
+    html += '</select></div>';
+
+    html += '<div class="claims-wrap"><table class="claims-table"><thead><tr>';
+    cols.forEach(col => {{
+      const arrow = sortCol === col.key ? (sortAsc ? '\u25B2' : '\u25BC') : '\u25B4';
+      const active = sortCol === col.key ? ' active' : '';
+      html += '<th data-col="' + col.key + '">' + col.label + '<span class="sort-arrow' + active + '">' + arrow + '</span></th>';
+    }});
+    html += '</tr></thead><tbody>';
+
+    if (filtered.length === 0) {{
+      html += '<tr><td colspan="' + cols.length + '" style="text-align:center;color:#888;padding:1.5rem">No matching claims</td></tr>';
+    }}
+
+    filtered.forEach(c => {{
+      const dlClass = deadlineClass(c.deadline);
+      const nameCell = c.link
+        ? '<a href="' + c.link + '" target="_blank" rel="noopener">' + c.name + '</a>'
+        : c.name;
+      const notesHtml = c.notes ? '<div class="claim-notes">' + c.notes + '</div>' : '';
+
+      html += '<tr>';
+      html += '<td>' + nameCell + notesHtml + '</td>';
+      html += '<td class="' + dlClass + '">' + fmtDeadline(c.deadline) + '</td>';
+      html += '<td class="' + statusClass(c.you) + '">' + (c.you || '—') + '</td>';
+      html += '<td class="' + statusClass(c.spouse) + '">' + (c.spouse || '—') + '</td>';
+      html += '<td>' + (c.payout || '—') + '</td>';
+      html += '<td>' + (c.proof || '—') + '</td>';
+      html += '<td><div class="claim-action">' + (c.action || '—') + '</div></td>';
+      html += '</tr>';
+    }});
+
+    html += '</tbody></table></div>';
+    el.innerHTML = html;
+
+    // Bind events
+    document.getElementById('claims-search').addEventListener('input', function(e) {{
+      filterText = e.target.value; render();
+    }});
+    document.getElementById('claims-status').addEventListener('change', function(e) {{
+      filterStatus = e.target.value; render();
+    }});
+    document.getElementById('claims-cat').addEventListener('change', function(e) {{
+      filterCategory = e.target.value; render();
+    }});
+    el.querySelectorAll('.claims-table th').forEach(th => {{
+      th.addEventListener('click', function() {{
+        const col = this.dataset.col;
+        if (sortCol === col) sortAsc = !sortAsc;
+        else {{ sortCol = col; sortAsc = true; }}
+        render();
+      }});
+    }});
+  }}
+
+  render();
+}})();
 </script>
 </body>
 </html>"""
@@ -333,8 +511,8 @@ document.querySelectorAll('.tab-panel').forEach(panel => {{
     with open(out_path, "w", encoding="utf-8") as fh:
         fh.write(html)
 
-    summary_count = sum(len(t.get("entries", [])) for t in tab_data)
-    print(f"Built {out_path} with {len(tab_data)} tabs, {summary_count} total entries")
+    summary_count = sum(len(t.get("entries", [])) for t in tab_data if t["type"] == "summaries")
+    print(f"Built {out_path} with {len(tab_data)} tabs, {summary_count} summary entries")
 
 
 if __name__ == "__main__":
