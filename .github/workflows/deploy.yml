@@ -21,8 +21,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - name: Build
-        run: python3 build.py
+      # _site/index.html is built locally and committed — no build step needed
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
