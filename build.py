@@ -188,6 +188,27 @@ def build():
       const div = document.createElement("div");
       div.className = "summary";
       div.innerHTML = marked.parse(e.content);
+      const h1 = div.querySelector('h1');
+      if (h1) {{
+        const text = h1.textContent;
+        const m = text.match(/^#?\\s*(\\S+)\\s+Monitor\\s*[—–-]\\s*(\\d{{4}}-\\d{{2}}-\\d{{2}})\\s+(.+)$/i);
+        if (m) {{
+          const channel = m[1];
+          const dateStr = m[2];
+          const rawTime = m[3].trim();
+          const timeDisplay = to12h(rawTime);
+          const [y, mo, d] = dateStr.split('-');
+          const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const formatted = months[parseInt(mo)-1] + ' ' + parseInt(d) + ', ' + y + ' · ' + timeDisplay + ' EST';
+          const hdr = document.createElement('div');
+          hdr.className = 'header';
+          hdr.innerHTML = '<div class="channel">' + channel + '</div><div class="datetime">' + formatted + '</div>';
+          h1.replaceWith(hdr);
+        }}
+      }}
+      div.querySelectorAll('h3').forEach(h3 => {{
+        h3.innerHTML = h3.innerHTML.replace(/\\s*\\(\\d{{1,2}}:\\d{{2}}(\\s*[APap][Mm])?\\)\\s*/g, ' ').trim();
+      }});
       el.appendChild(div);
     }});
   }}
@@ -245,6 +266,20 @@ def build():
 
   .summary {{ background: #fff; border-radius: 10px; padding: 1.5rem 1.75rem 1.25rem;
               margin-bottom: 1.25rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }}
+  .summary .header {{ text-align: center; margin-bottom: 1.25rem; padding-bottom: 1rem;
+                      border-bottom: 1px solid #eee; }}
+  .summary .header .channel {{ font-size: .75rem; font-weight: 600; text-transform: uppercase;
+                               letter-spacing: .06em; color: #6b7280; margin-bottom: .25rem; }}
+  .summary .header .datetime {{ font-size: 1.1rem; font-weight: 600; color: #1a1a1a; }}
+  .summary h2 {{ font-size: 1.05rem; margin: 1.25rem 0 .5rem; color: #1a1a1a; }}
+  .summary h3 {{ font-size: .95rem; margin: 1rem 0 .4rem; color: #374151; }}
+  .summary p {{ margin: .5rem 0; line-height: 1.6; }}
+  .summary ul {{ margin: .4rem 0 .4rem 1.25rem; }}
+  .summary li {{ margin: .3rem 0; line-height: 1.55; }}
+  .summary strong {{ color: #1a1a1a; }}
+  .summary hr {{ border: none; border-top: 1px solid #eee; margin: 1.25rem 0; }}
+  .summary a {{ color: #2563eb; text-decoration: none; }}
+  .summary a:hover {{ text-decoration: underline; }}
   .empty {{ text-align: center; padding: 3rem; color: #888; }}
 
   .single-content {{ background: #fff; border-radius: 8px; padding: 1.25rem 1.5rem;
@@ -304,7 +339,13 @@ def build():
     .jackpot {{ color: #666; }}
     .jackpot:hover {{ color: #888; }}
     .summary, .single-content {{ background: #252525; box-shadow: 0 1px 3px rgba(0,0,0,.4); }}
-    .single-content h1, .single-content h2 {{ color: #eee; }}
+    .summary .header {{ border-bottom-color: #333; }}
+    .summary .header .channel {{ color: #9ca3af; }}
+    .summary .header .datetime {{ color: #eee; }}
+    .summary h2, .summary strong, .single-content h1, .single-content h2 {{ color: #eee; }}
+    .summary h3 {{ color: #d1d5db; }}
+    .summary hr {{ border-top-color: #333; }}
+    .summary a {{ color: #60a5fa; }}
     .single-content h3 {{ color: #60a5fa; }}
     .single-content th {{ background: #2a2a3a; border-bottom-color: #444; }}
     .single-content td {{ border-bottom-color: #333; }}
@@ -344,6 +385,19 @@ document.querySelectorAll('.tab').forEach(btn => {{
     document.getElementById(btn.dataset.tab).classList.add('active');
   }});
 }});
+
+function to12h(t) {{
+  if (/[ap]m/i.test(t)) return t.toUpperCase().replace(/(\\d)(AM|PM)/, '$1 $2');
+  const p = t.match(/^(\\d{{1,2}}):(\\d{{2}})$/);
+  if (p) {{
+    let h = parseInt(p[1]), mn = p[2];
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    if (h === 0) h = 12;
+    else if (h > 12) h -= 12;
+    return h + ':' + mn + ' ' + ampm;
+  }}
+  return t;
+}}
 
 {js_data}
 document.querySelectorAll('.tab-panel').forEach(panel => {{
