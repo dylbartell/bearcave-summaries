@@ -139,6 +139,22 @@ document.querySelectorAll('.tab').forEach(btn => {{
   }});
 }});
 
+// Convert 24h or bare time strings to 12h AM/PM
+function to12h(t) {{
+  // Already has AM/PM — return as-is
+  if (/[ap]m/i.test(t)) return t.toUpperCase().replace(/(\\d)(AM|PM)/, '$1 $2');
+  // Try to parse HH:MM 24h
+  const p = t.match(/^(\\d{{1,2}}):(\\d{{2}})$/);
+  if (p) {{
+    let h = parseInt(p[1]), mn = p[2];
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    if (h === 0) h = 12;
+    else if (h > 12) h -= 12;
+    return h + ':' + mn + ' ' + ampm;
+  }}
+  return t;
+}}
+
 // Summaries tab
 const entries = {json.dumps(entries)};
 const summariesEl = document.getElementById("summaries");
@@ -153,22 +169,26 @@ if (entries.length === 0) {{
     const h1 = div.querySelector('h1');
     if (h1) {{
       const text = h1.textContent;
-      // Match patterns like "#bearcave-chat Monitor — 2026-03-13 7:07 AM" or "bearcave-chat Monitor — 2026-03-13 07:37"
       const m = text.match(/^#?\\s*(\\S+)\\s+Monitor\\s*[—–-]\\s*(\\d{{4}}-\\d{{2}}-\\d{{2}})\\s+(.+)$/i);
       if (m) {{
         const channel = m[1];
         const dateStr = m[2];
-        const timeStr = m[3].trim();
-        // Parse and format the date nicely
+        const rawTime = m[3].trim();
+        // Normalize time to 12h AM/PM
+        const timeDisplay = to12h(rawTime);
         const [y, mo, d] = dateStr.split('-');
         const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        const formatted = months[parseInt(mo)-1] + ' ' + parseInt(d) + ', ' + y + ' · ' + timeStr;
+        const formatted = months[parseInt(mo)-1] + ' ' + parseInt(d) + ', ' + y + ' · ' + timeDisplay + ' EST';
         const hdr = document.createElement('div');
         hdr.className = 'header';
         hdr.innerHTML = '<div class="channel">' + channel + '</div><div class="datetime">' + formatted + '</div>';
         h1.replaceWith(hdr);
       }}
     }}
+    // Strip redundant parenthetical timestamps from h3 headings like "(7:19 AM)" or "(07:12)"
+    div.querySelectorAll('h3').forEach(h3 => {{
+      h3.innerHTML = h3.innerHTML.replace(/\\s*\\(\\d{{1,2}}:\\d{{2}}(\\s*[APap][Mm])?\\)\\s*/g, ' ').trim();
+    }});
     summariesEl.appendChild(div);
   }});
 }}
