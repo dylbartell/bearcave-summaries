@@ -9,7 +9,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
          background: #f5f5f5; color: #222; margin: 0; }
-  .container { max-width: 900px; margin: 0 auto; padding: 0 1rem 1rem; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem 1rem; }
 
   .tabs { display: flex; gap: 0; border-bottom: 2px solid #ddd; margin-bottom: 1rem;
            position: sticky; top: 0; background: #f5f5f5; padding-top: 1rem; z-index: 10;
@@ -41,6 +41,8 @@
   .summary hr { border: none; border-top: 1px solid #eee; margin: 1.25rem 0; }
   .summary a { color: #2563eb; text-decoration: none; }
   .summary a:hover { text-decoration: underline; }
+  .summary .section-label { font-size: 1rem; font-weight: 700; margin: 1.5rem 0 .5rem; padding-top: .75rem;
+                             border-top: 1px solid #eee; color: #1a1a1a; }
   .empty { text-align: center; padding: 3rem; color: #888; }
 
   .single-content { background: #fff; border-radius: 8px; padding: 1.25rem 1.5rem;
@@ -107,6 +109,7 @@
     .summary h3 { color: #d1d5db; }
     .summary hr { border-top-color: #333; }
     .summary a { color: #60a5fa; }
+    .summary .section-label { color: #eee; border-top-color: #333; }
     .single-content h3 { color: #60a5fa; }
     .single-content th { background: #2a2a3a; border-bottom-color: #444; }
     .single-content td { border-bottom-color: #333; }
@@ -249,6 +252,33 @@ document.querySelectorAll('.tab-panel').forEach(panel => {
         }
       }
 
+      // Strip leading paragraphs that duplicate header info (channel name, date/time lines)
+      const firstChildren = Array.from(div.children);
+      for (const child of firstChildren) {
+        if (child.classList && child.classList.contains('header')) continue;
+        if (child.tagName === 'P') {
+          const t = child.textContent.trim();
+          if (/^(bearcave|#bearcave)/i.test(t) || /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s/i.test(t) || /^\d{4}-\d{2}-\d{2}/.test(t)) {
+            child.remove();
+            continue;
+          }
+        }
+        if (child.tagName === 'HR') { child.remove(); continue; }
+        break;
+      }
+
+      // Promote section labels to styled headings
+      div.querySelectorAll('p').forEach(p => {
+        const t = p.textContent.trim();
+        const m = t.match(/^(.{0,3})(Actionable|Notable Context|Filtered|Energy)\b(.*)$/i);
+        if (m && t.length < 120) {
+          const h = document.createElement('h2');
+          h.className = 'section-label';
+          h.innerHTML = p.innerHTML;
+          p.replaceWith(h);
+        }
+      });
+
       div.querySelectorAll('h3').forEach(h3 => {
         h3.innerHTML = h3.innerHTML.replace(/\s*\(\d{1,2}:\d{2}(\s*[APap][Mm])?\)\s*/g, ' ').trim();
       });
@@ -341,6 +371,33 @@ document.querySelectorAll('.tab-panel').forEach(panel => {
           div.insertBefore(hdr, div.firstChild);
         }
       }
+
+      // Strip leading paragraphs that duplicate header info (channel name, date/time lines)
+      const firstChildren = Array.from(div.children);
+      for (const child of firstChildren) {
+        if (child.classList && child.classList.contains('header')) continue;
+        if (child.tagName === 'P') {
+          const t = child.textContent.trim();
+          if (/^(bearcave|#bearcave)/i.test(t) || /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s/i.test(t) || /^\d{4}-\d{2}-\d{2}/.test(t)) {
+            child.remove();
+            continue;
+          }
+        }
+        if (child.tagName === 'HR') { child.remove(); continue; }
+        break;
+      }
+
+      // Promote section labels to styled headings
+      div.querySelectorAll('p').forEach(p => {
+        const t = p.textContent.trim();
+        const m = t.match(/^(.{0,3})(Actionable|Notable Context|Filtered|Energy)\b(.*)$/i);
+        if (m && t.length < 120) {
+          const h = document.createElement('h2');
+          h.className = 'section-label';
+          h.innerHTML = p.innerHTML;
+          p.replaceWith(h);
+        }
+      });
 
       div.querySelectorAll('h3').forEach(h3 => {
         h3.innerHTML = h3.innerHTML.replace(/\s*\(\d{1,2}:\d{2}(\s*[APap][Mm])?\)\s*/g, ' ').trim();
