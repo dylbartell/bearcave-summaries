@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python build.py)",
+      "Bash(git -C /c/Users/dylba/Desktop/AI2/AI2/bearcave-summaries rev-parse --show-toplevel)",
+      "Bash(git init:*)",
+      "Bash(git checkout:*)"
+    ]
+  }
+}
