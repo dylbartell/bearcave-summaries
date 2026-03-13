@@ -6,7 +6,7 @@ import json
 import os
 
 def build():
-    md_files = sorted(glob.glob("*.md"), reverse=True)
+    md_files = sorted(glob.glob("*.md"), reverse=True)[:8]
 
     entries = []
     for f in md_files:
