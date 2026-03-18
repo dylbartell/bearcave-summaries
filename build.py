@@ -17,9 +17,18 @@ import re
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECTS_DIR = os.path.dirname(SCRIPT_DIR)  # ../projects/
+COWORK_DIR = os.path.dirname(PROJECTS_DIR)  # ../Cowork/ (parent of projects/)
 
 # ── Source configuration ─────────────────────────────────────────────
 SOURCES = [
+    {
+        "id": "scratchpad",
+        "label": "Live Intel",
+        "type": "single",
+        "base": "cowork",
+        "path": os.path.join("sweepsintel", "intelligence", "scratchpad"),
+        "file": "SCRATCHPAD.md",
+    },
     {
         "id": "summaries",
         "label": "Bearcave",
@@ -57,7 +66,8 @@ SOURCES = [
 
 def load_summaries(source):
     """Load markdown files matching pattern, sorted newest-first."""
-    src_dir = os.path.join(PROJECTS_DIR, source["path"])
+    base = COWORK_DIR if source.get("base") == "cowork" else PROJECTS_DIR
+    src_dir = os.path.join(base, source["path"])
     if not os.path.isdir(src_dir):
         return []
     files = sorted(
@@ -77,7 +87,8 @@ def load_summaries(source):
 
 def load_single(source):
     """Load a single markdown file."""
-    filepath = os.path.join(PROJECTS_DIR, source["path"], source["file"])
+    base = COWORK_DIR if source.get("base") == "cowork" else PROJECTS_DIR
+    filepath = os.path.join(base, source["path"], source["file"])
     if not os.path.exists(filepath):
         return ""
     with open(filepath, encoding="utf-8") as fh:
